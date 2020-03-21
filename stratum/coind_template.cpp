@@ -63,7 +63,9 @@ YAAMP_JOB_TEMPLATE *coind_create_template_memorypool(YAAMP_COIND *coind)
 //	templ->height = json_get_int(json_result, "height");
 	sprintf(templ->version, "%08x", (unsigned int)json_get_int(json_result, "version"));
 	sprintf(templ->ntime, "%08x", (unsigned int)json_get_int(json_result, "time"));
-	strcpy(templ->nbits, json_get_string(json_result, "bits"));
+	
+    strcpy(templ->nbits, json_get_string(json_result, "bits"));
+
 	strcpy(templ->prevhash_hex, json_get_string(json_result, "previousblockhash"));
 
 	json_value_free(json);
@@ -303,9 +305,38 @@ YAAMP_JOB_TEMPLATE *coind_create_template(YAAMP_COIND *coind)
 
 	const char *bits = json_get_string(json_result, "bits");
 	strcpy(templ->nbits, bits ? bits : "");
+        
 	const char *prev = json_get_string(json_result, "previousblockhash");
 	strcpy(templ->prevhash_hex, prev ? prev : "");
-	const char *flags = json_get_string(json_coinbaseaux, "flags");
+
+    // equihash
+    if (!strcmp(g_stratum_algo, "equihash")) {
+
+        /*
+        // (!) bits <- target (?)
+        // https://bitcoin.stackexchange.com/questions/30467/what-are-the-equations-to-convert-between-bits-and-difficulty
+        
+        */
+
+        // override nbits from target
+
+        const char *target = json_get_string(json_result, "target");
+        uint32_t bits_bin = target2bits(target); // bits_bin = 0x1e3a79c3, templ->nbits = "1e3a79c3"
+        char bits_str[5] = {0};
+        hexlify(bits_str, (const unsigned char *)&bits_bin, 4);
+        string_be(bits_str, templ->nbits_from_target);
+
+        const char *finalsaplingroothash = json_get_string(json_result, "finalsaplingroothash");
+        strcpy(templ->extradata_hex, finalsaplingroothash ? finalsaplingroothash : "");
+        string_be(templ->extradata_hex,templ->extradata_be);
+    }
+	
+	const char *flags;
+	if(!json_coinbaseaux && coind->isaux)
+		flags = json_get_string(json_coinbaseaux, "flags");
+		else
+		flags = NULL;
+
 	strcpy(templ->flags, flags ? flags : "");
 
 	// LBC Claim Tree (with wallet gbt patch)
@@ -431,6 +462,89 @@ YAAMP_JOB_TEMPLATE *coind_create_template(YAAMP_COIND *coind)
 			templ->has_filtered_txs = true;
 		}
 	}
+    
+    // std::cerr << "[1] Txes count: " << templ->txdata.size() << std::endl;
+
+    // for equihash we need to insert coinbasetxn here
+    if (!strcmp(g_stratum_algo, "equihash")) {
+
+        json_value *json_coinbasetxn = json_get_object(json_result, "coinbasetxn");
+        if(!json_coinbasetxn)
+        {
+            coind_error(coind, "getblocktemplate coinbasetxn");
+            json_value_free(json);
+            return NULL;
+        }
+        
+        // coinbase_create_equi(coind, templ, json_result);
+        // here we will take coinbase tx from rpcdata, instead of manually creation
+        // TODO: implement coinbase_create_equi
+
+        templ->value = json_get_int(json_coinbasetxn, "coinbasevalue");
+        const char *p = json_get_string(json_coinbasetxn, "hash");
+		const char *d = json_get_string(json_coinbasetxn, "data");
+        
+        if ((strlen(d) + 1) < (sizeof(templ->coinbase)/sizeof(templ->coinbase[0])))
+            {
+                strcpy(templ->coinbase, d);
+                // std::cerr << templ->coinbase << std::endl;
+            }
+        else
+            {
+                coind_error(coind, "coinbasetxn doesn't fit in template");
+                json_value_free(json);
+                return NULL;
+            }
+
+        char hash_be[256] = { 0 };
+        string_be(p, hash_be);
+        
+        /*
+        std::cout << "txhashes.size() = " << txhashes.size() << " - " << (txhashes.size() % 2) << std::endl;
+        std::cerr << "[ Decker ] txhashes[" << txhashes.size() << "] = " << std::endl;
+        for (int i=0; i < txhashes.size(); i++) {
+            std::string hex(txhashes[i]);
+            for (std::string::iterator it=hex.begin(); it != hex.end(); it += 2) std::swap(it[0], it[1]);
+            std::string hex_reversed(hex.rbegin(), hex.rend());
+            std::cerr << "[" << i << "] \"" << txhashes[i] << "\" - " "\"" << hex_reversed << "\""<< std::endl;
+        }
+        */
+        vector<std::string> txsteps = merkle_steps(txhashes);
+        /*
+        std::cerr << "merkle steps [" << txsteps.size() << "] :" << std::endl;
+        for (int i=0; i<txsteps.size(); i++) {
+            std::string hex(txsteps[i]);
+            for (std::string::iterator it=hex.begin(); it != hex.end(); it += 2) std::swap(it[0], it[1]);
+            std::string hex_reversed(hex.rbegin(), hex.rend());
+            std::cerr << "[" << i << "] \"" << txsteps[i] << "\" - " "\"" << hex_reversed << "\""<< std::endl;
+            
+        }
+        */
+
+        if (txsteps.size() > 0) 
+        {
+            std::string mr = merkle_with_first(txsteps, hash_be);
+            std::string hex(mr);
+            for (std::string::iterator it=hex.begin(); it != hex.end(); it += 2) std::swap(it[0], it[1]);
+            std::string hex_reversed(hex.rbegin(), hex.rend());
+            //std::cerr << hex_reversed << std::endl;
+            strcpy(templ->mr_hex,hex_reversed.c_str());
+            //std::cerr << "Merkle (many): " << templ->mr_hex << std::endl;
+        } else 
+        {
+            std::string hex(p);
+            strcpy(templ->mr_hex,hex.c_str());
+            //std::cerr << "Merkle (one): " << templ->mr_hex << std::endl;
+        }
+
+        /*
+        // standart - merkle_arr = txsteps = templ->txmerkles       - // https://github.com/slushpool/poclbm-zcash/wiki/Stratum-protocol-changes-for-ZCash
+        // equishash - merkle_arr->merkleroot (including coinbase)  - // https://en.bitcoin.it/wiki/Stratum_mining_protocol#mining.notify
+        https://en.bitcoin.it/wiki/Stratum_mining_protocol#mining.notify
+        List of merkle branches. The generation transaction is hashed against the merkle branches to build the final merkle root.
+        */
+    }
+
 
 	if (templ->has_filtered_txs) {
 		// coinbasevalue is a total with all tx fees, need to reduce it if some are skipped
@@ -486,8 +600,10 @@ YAAMP_JOB_TEMPLATE *coind_create_template(YAAMP_COIND *coind)
 	if(templ->txmerkles[0])
 		templ->txmerkles[strlen(templ->txmerkles)-1] = 0;
 
-//	debuglog("merkle transactions %d [%s]\n", templ->txcount, templ->txmerkles);
-	ser_string_be2(templ->prevhash_hex, templ->prevhash_be, 8);
+	// debuglog("merkle transactions %d [%s]\n", templ->txcount, templ->txmerkles);
+    if (!strcmp(g_stratum_algo, "equihash")) {
+        string_be(templ->prevhash_hex, templ->prevhash_be);
+    } else ser_string_be2(templ->prevhash_hex, templ->prevhash_be, 8);
 
 	if(!strcmp(coind->symbol, "LBC"))
 		ser_string_be2(templ->claim_hex, templ->claim_be, 8);
@@ -496,6 +612,7 @@ YAAMP_JOB_TEMPLATE *coind_create_template(YAAMP_COIND *coind)
 		coind_aux_build_auxs(templ);
 
 	coinbase_create(coind, templ, json_result);
+    
 	json_value_free(json);
 
 	return templ;
@@ -563,11 +680,24 @@ bool coind_create_job(YAAMP_COIND *coind, bool force)
 			stratumlog("%s %d not reporting\n", coind->name, coind->height);
 	}
 
-	uint64_t coin_target = decode_compact(templ->nbits);
+	uint64_t coin_target;
+    if (g_current_algo->name && !strcmp(g_current_algo->name,"equihash"))
+        {
+            uint32_t bits;
+            char bits_str[5] = { 0 }; 
+            string_be(templ->nbits, bits_str); binlify((unsigned char *)&bits, bits_str);
+            coin_target = diff_to_target(nbits_to_diff_equi(&bits));
+        }
+    else
+        {
+            coin_target  = decode_compact(templ->nbits);
+        };
+    
 	if (templ->nbits && !coin_target) coin_target = 0xFFFF000000000000ULL; // under decode_compact min diff
+
 	coind->difficulty = target_to_diff(coin_target);
 
-//	stratumlog("%s %d diff %g %llx %s\n", coind->name, height, coind->difficulty, coin_target, templ->nbits);
+	stratumlog("%s %d diff %g %llx %s\n", coind->name, height, coind->difficulty, coin_target, templ->nbits);
 
 	coind->newblock = false;
 

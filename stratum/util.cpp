@@ -479,26 +479,6 @@ void ser_number(int n, char *a)
 //	printf("ser_number %d, %s\n", n, a);
 }
 
-void ser_compactsize(uint64_t nSize, char *a)
-{
-	if (nSize < 253)
-	{
-		sprintf(a, "%02lx", nSize);
-	}
-	else if (nSize <= (unsigned short)-1)
-	{
-		sprintf(a, "%02x%04lx", 253, nSize);
-	}
-	else if (nSize <= (unsigned int)-1)
-	{
-		sprintf(a, "%02x%08lx", 254, nSize);
-	}
-	else
-	{
-		sprintf(a, "%02x%016lx", 255, nSize);
-	}
-}
-
 void ser_string_be(const char *input, char *output, int len)
 {
 	for(int i=0; i<len; i++)
@@ -547,6 +527,151 @@ double target_to_diff(uint64_t target)
 	return d;
 }
 
+void bits2target(uint32_t nbits, char *out_target) {
+    // nb! out_target space should be prepared before call, last 65th 0x00 char should be inserted by caller?
+    char out_target_bin[32];
+    char out_target_rev[65]; 
+    memset(out_target_bin, 0, 32);
+    if (nbits !=0) {
+        out_target_bin[(nbits >> 24)-1] = (nbits >> 16) & 0xff;
+        out_target_bin[(nbits >> 24)-2] = (nbits >> 8) & 0xff;
+        out_target_bin[(nbits >> 24)-3] = nbits & 0xff;
+    }
+    hexlify(out_target_rev, (const unsigned char *)out_target_bin, 32);
+    string_be(out_target_rev, out_target);
+    //cout << out_target << endl;
+}
+
+uint32_t target2bits(const char *target) {
+    // bits -> target
+    // https://bitcoin.stackexchange.com/questions/30467/what-are-the-equations-to-convert-between-bits-and-difficulty
+    // https://github.com/yqsy/notes/blob/58cd486426e474157ac8ef1c17a934d25401b8f1/business/blockchain/bitcoin/%E7%A5%9E%E5%A5%87%E7%9A%84nBits.md
+
+    // derived from target -> bits (GetCompact() in bitcoin/src/arith_uint256.cpp)
+    char target_rev[65] = {0}; string_be(target, target_rev);
+    unsigned char target_bin[32] = {0};
+    binlify(target_bin, target_rev);
+    //std::cerr << target << "\n" << target_rev << std::endl;
+    #define BITS 256
+    enum { WIDTH=BITS/32 };
+    uint32_t pn[WIDTH] = { 0 }; 
+    binlify((unsigned char *)pn, target_rev);
+    
+    unsigned int bits_res = 0;
+    for (int pos = WIDTH - 1; pos >= 0; pos--) {
+        if (pn[pos]) {
+            for (int bits = 31; bits > 0; bits--) {
+                if (pn[pos] & 1 << bits)
+                    { bits_res = 32 * pos + bits + 1; break;  }
+            }
+            if (bits_res) break;
+            bits_res = 32 * pos + 1;
+            break;
+        }
+    }
+    // target -> bits (GetCompact() in bitcoin/src/arith_uint256.cpp)
+    bool fNegative = false;
+    uint32_t nCompact = 0;
+    int nSize = (bits_res + 7) / 8; // nszie = number of significant bytes
+    
+    uint64_t GetLow64 = 0; int pos = 0;
+    if (nSize <= 3) {
+        pos = 0;
+        GetLow64 = pn[pos] | (uint64_t)pn[pos + 1] << 32;
+        nCompact = GetLow64 << 8 * (3 - nSize);
+    } else 
+    {
+        // arith_uint256 bn = *this >> 8 * (nSize - 3);
+        // nCompact = bn.GetLow64();
+
+        pos = 8 * (nSize - 3); // shift right on pos bits (200 bits = 25 bytes)
+        int shr_bytes = (pos / WIDTH % sizeof(uint32_t));
+        pos = pos / WIDTH / sizeof(uint32_t);
+        
+        GetLow64 = pn[pos] | (uint64_t)pn[pos + 1] << 32;
+        GetLow64 = GetLow64 >> (shr_bytes * 8);
+        nCompact = GetLow64;
+    }
+    // The 0x00800000 bit denotes the sign.
+    // Thus, if it is already set, divide the mantissa by 256 and increase the exponent.
+    if (nCompact & 0x00800000) {
+        nCompact >>= 8;
+        nSize++;
+    }
+    //assert((nCompact & ~0x007fffff) == 0);
+    //assert(nSize < 256);
+    nCompact |= nSize << 24;
+    nCompact |= (fNegative && (nCompact & 0x007fffff) ? 0x00800000 : 0);
+    return nCompact;
+}
+
+// equihash (from ccminer equi-stratum.cpp)
+
+// ZEC uses a different scale to compute diff... 
+// sample targets to diff (stored in the reverse byte order in work->target)
+// 0007fff800000000000000000000000000000000000000000000000000000000 is stratum diff 32
+// 003fffc000000000000000000000000000000000000000000000000000000000 is stratum diff 4
+// 00ffff0000000000000000000000000000000000000000000000000000000000 is stratum diff 1
+double target_to_diff_equi(uint32_t* target)
+{
+    uint8_t* tgt = (uint8_t*) target;
+    uint64_t m =
+        (uint64_t)tgt[30] << 24 |
+        (uint64_t)tgt[29] << 16 |
+        (uint64_t)tgt[28] << 8  |
+        (uint64_t)tgt[27] << 0;
+
+    if (!m)
+        return 0.;
+    else
+        return (double)0xffff0000UL/m;
+}
+
+void diff_to_target_equi(uint32_t *target, double diff)
+{
+    uint64_t m;
+    int k;
+
+    for (k = 6; k > 0 && diff > 1.0; k--)
+        diff /= 4294967296.0;
+    m = (uint64_t)(4294901760.0 / diff);
+    if (m == 0 && k == 6)
+        memset(target, 0xff, 32);
+    else {
+        memset(target, 0, 32);
+        target[k + 1] = (uint32_t)(m >> 8);
+        target[k + 2] = (uint32_t)(m >> 40);
+        //memset(target, 0xff, 6*sizeof(uint32_t));
+        for (k = 0; k < 28 && ((uint8_t*)target)[k] == 0; k++)
+            ((uint8_t*)target)[k] = 0xff;
+    }
+}
+
+double nbits_to_diff_equi(uint32_t *nbits) {
+    // ported diff calc proc from KMD ... 
+    uint32_t bits = *(nbits);
+    //uint32_t powLimit = UintToArith256(Params().GetConsensus().powLimit).GetCompact(); // 0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f
+    uint32_t powLimit = 0x200f0f0f;
+    int nShift = (bits >> 24) & 0xff;
+    int nShiftAmount = (powLimit >> 24) & 0xff;
+
+    double dDiff =
+        (double)(powLimit & 0x00ffffff) /
+        (double)(bits & 0x00ffffff);
+
+    while (nShift < nShiftAmount)
+    {
+        dDiff *= 256.0;
+        nShift++;
+    }
+    while (nShift > nShiftAmount)
+    {
+        dDiff /= 256.0;
+        nShift--;
+    }
+    return dDiff;
+}
+
 uint64_t decode_compact(const char *input)
 {
 	uint64_t c = htoi64(input);
@@ -576,31 +701,6 @@ uint64_t decode_compact(const char *input)
 //
 //	debuglog("decode_compact %s -> %016llx\n", input, v);
 	return v;
-}
-
-uint64_t sharetotarg(double diff)
-{
-        int i, shift = 29;
-        unsigned char targ[32];
-        for (i=0; i<32; i++)
-            targ[i]=0;
-        double ftarg = (double)0x0000ffff / diff;
-        while (ftarg < (double)0x00008000) {
-            shift--;
-            ftarg *= 256.0;
-        }
-        while (ftarg >= (double)0x00800000) {
-            shift++;
-            ftarg /= 256.0;
-        }
-        uint32_t nBits = (int)ftarg + (shift << 24);
-        shift = (nBits >> 24) & 0x00ff;
-        nBits &= 0x00FFFFFF;
-        targ[shift - 1] = nBits >> 16;
-        targ[shift - 2] = nBits >> 8;
-        targ[shift - 3] = nBits;
-        uint64_t starget = * (uint64_t *) &targ[24];
-        return (starget);
 }
 
 //def uint256_from_compact(c):

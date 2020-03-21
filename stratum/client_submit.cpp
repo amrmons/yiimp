@@ -31,10 +31,14 @@ void build_submit_values(YAAMP_JOB_VALUES *submitvalues, YAAMP_JOB_TEMPLATE *tem
 #ifdef MERKLE_DEBUGLOG
 	printf("merkle root %s\n", merkleroot.c_str());
 #endif
-	if (!strcmp(g_current_algo->name, "lbry")) {
+	if (!strcmp(g_stratum_algo, "lbry")) {
 		sprintf(submitvalues->header, "%s%s%s%s%s%s%s", templ->version, templ->prevhash_be, submitvalues->merkleroot_be,
 			templ->claim_be, ntime, templ->nbits, nonce);
-		ser_string_be(submitvalues->header, submitvalues->header_be, 32 + 20);
+		ser_string_be(submitvalues->header, submitvalues->header_be, 112/4);
+	} else if (strlen(templ->extradata_be) == 128) { // LUX SC
+		sprintf(submitvalues->header, "%s%s%s%s%s%s%s", templ->version, templ->prevhash_be, submitvalues->merkleroot_be,
+			ntime, templ->nbits, nonce, templ->extradata_be);
+		ser_string_be(submitvalues->header, submitvalues->header_be, 36); // 80+64 / sizeof(u32)
 	} else {
 		sprintf(submitvalues->header, "%s%s%s%s%s%s", templ->version, templ->prevhash_be, submitvalues->merkleroot_be,
 			ntime, templ->nbits, nonce);
@@ -50,7 +54,73 @@ void build_submit_values(YAAMP_JOB_VALUES *submitvalues, YAAMP_JOB_TEMPLATE *tem
 	hexlify(submitvalues->hash_hex, submitvalues->hash_bin, 32);
 	string_be(submitvalues->hash_hex, submitvalues->hash_be);
 }
+/////////////////////////////////////////////
+void build_submit_values_equi(YAAMP_JOB_VALUES *submitvalues, YAAMP_JOB_TEMPLATE *templ,
+	const char *nonce1, const char *nonce2, const char *ntime, const char *nonce, const char *equi_solution)
+{
+    /*
+    std::cerr << "build_submit_values_equi" << std::endl;
+    std::cerr << "------------------------" << std::endl;
+    std::cerr << "nonce1 = " << nonce1 << std::endl;
+    std::cerr << "nonce2 = " << nonce2 << std::endl;
+    std::cerr << "ntime = " << ntime << " (" << templ->ntime << ")" << std::endl;
+    std::cerr << "nonce = " << nonce << std::endl;
+    */
 
+    sprintf(submitvalues->coinbase, "%s", templ->coinbase);
+	int coinbase_len = strlen(submitvalues->coinbase);
+    //std::cerr << "[2] Txes count: " << templ->txdata.size() << std::endl;
+
+	unsigned char coinbase_bin[1024];
+	memset(coinbase_bin, 0, 1024);
+	binlify(coinbase_bin, submitvalues->coinbase);
+
+	char doublehash[128];
+	memset(doublehash, 0, 128);
+
+	// some (old) wallet/algos need a simple SHA256 (blakecoin, whirlcoin, groestlcoin...)
+	YAAMP_HASH_FUNCTION merkle_hash = sha256_double_hash_hex;
+	if (g_current_algo->merkle_func)
+		merkle_hash = g_current_algo->merkle_func;
+	merkle_hash((char *)coinbase_bin, doublehash, coinbase_len/2);
+
+	string merkleroot = merkle_with_first(templ->txsteps, doublehash);
+    strcpy(submitvalues->merkleroot_be, merkleroot.c_str());
+    // std::cerr << "Merkle (build): " << merkleroot << std::endl;
+
+#ifdef MERKLE_DEBUGLOG
+	printf("merkle root %s\n", merkleroot.c_str());
+#endif
+
+    {
+        char rev_version[32] = {0};
+        char rev_ntime[32] = {0};
+        char rev_nbits[32] = {0};
+        string_be(templ->version,rev_version);
+        string_be(ntime,rev_ntime);
+        //string_be(templ->ntime,rev_ntime);
+        string_be(templ->nbits,rev_nbits);
+
+        sprintf(submitvalues->header, "%s%s%s%s%s%s%s%s%s", rev_version, templ->prevhash_be, submitvalues->merkleroot_be,
+            templ->extradata_be, rev_ntime, rev_nbits, nonce1, nonce, equi_solution);
+        //std::cerr << " header: " << submitvalues->header << std::endl;
+
+        memset(submitvalues->header_be, 0, EQUI_HEADER_SIZE * 2 + 1);
+        strcpy(submitvalues->header_be,submitvalues->header);
+ 
+	}
+
+	binlify(submitvalues->header_bin, submitvalues->header_be);
+
+	int header_len = strlen(submitvalues->header)/2;
+	g_current_algo->hash_function((char *)submitvalues->header_bin, (char *)submitvalues->hash_bin, header_len);
+    
+
+	hexlify(submitvalues->hash_hex, submitvalues->hash_bin, 32);
+	string_be(submitvalues->hash_hex, submitvalues->hash_be);
+	//std::cerr << "  blockhash: " << submitvalues->hash_be << std::endl;
+    //debuglog("blockhash: %s\n",submitvalues->hash_be);
+}
 /////////////////////////////////////////////
 
 static void create_decred_header(YAAMP_JOB_TEMPLATE *templ, YAAMP_JOB_VALUES *out,
@@ -141,14 +211,21 @@ static void client_do_submit(YAAMP_CLIENT *client, YAAMP_JOB *job, YAAMP_JOB_VAL
 	if(job->block_found) return;
 	if(job->deleted) return;
 
-	uint64_t hash_int = get_hash_difficulty(submitvalues->hash_bin);
-	uint64_t coin_target = decode_compact(templ->nbits);
+    uint64_t hash_int, coin_target;
+    if (g_current_algo->name && !strcmp(g_current_algo->name,"equihash")) 
+        {
+            uint32_t bits; char bits_str[5] = { 0 }; 
+            string_be(templ->nbits/*_from_target*/, bits_str); binlify((unsigned char *)&bits, bits_str);
+            hash_int    = diff_to_target(target_to_diff_equi((uint32_t *)submitvalues->hash_bin));
+            coin_target = diff_to_target(nbits_to_diff_equi(&bits));
+        }
+    else
+        {
+            hash_int = get_hash_difficulty(submitvalues->hash_bin);
+	        coin_target = decode_compact(templ->nbits);
+        };
+	
 	if (templ->nbits && !coin_target) coin_target = 0xFFFF000000000000ULL;
-
-        // please forgive me for this hack jebus
-        if (strstr(g_current_algo->name,"balloon") &&
-           (submitvalues->hash_bin[30] | submitvalues->hash_bin[31]))
-           coin_target = 0x0;
 
 	int block_size = YAAMP_SMALLBUFSIZE;
 	vector<string>::const_iterator i;
@@ -219,7 +296,9 @@ static void client_do_submit(YAAMP_CLIENT *client, YAAMP_JOB *job, YAAMP_JOB_VAL
 
 	if(hash_int <= coin_target)
 	{
+        // adding transactions to block
 		char count_hex[8] = { 0 };
+        // adding tx count after blockheader
 		if (templ->txcount <= 252)
 			sprintf(count_hex, "%02x", templ->txcount & 0xFF);
 		else
@@ -232,7 +311,7 @@ static void client_do_submit(YAAMP_CLIENT *client, YAAMP_JOB *job, YAAMP_JOB_VAL
 			// block header of 88 bytes
 			sprintf(block_hex, "%s8400000008000000%s%s", submitvalues->header_be, count_hex, submitvalues->coinbase);
 		}
-
+        // adding tx data itself
 		vector<string>::const_iterator i;
 		for(i = templ->txdata.begin(); i != templ->txdata.end(); ++i)
 			sprintf(block_hex+strlen(block_hex), "%s", (*i).c_str());
@@ -251,6 +330,7 @@ static void client_do_submit(YAAMP_CLIENT *client, YAAMP_JOB *job, YAAMP_JOB_VAL
 				snprintf(block_hex, block_size, "%s", hex);
 		}
 
+		// std::cerr << "Block hex: " << block_hex << std::endl;
 		bool b = coind_submit(coind, block_hex);
 		if(b)
 		{
@@ -350,32 +430,31 @@ static bool ntime_valid_range(const char ntimehex[])
 	return (abs(rawtime - ntime) < (30 * 60));
 }
 
+static bool valid_string_params(json_value *json_params)
+{
+	for(int p=0; p < json_params->u.array.length; p++) {
+		if (!json_is_string(json_params->u.array.values[p]))
+			return false;
+	}
+	return true;
+}
+
 bool client_submit(YAAMP_CLIENT *client, json_value *json_params)
 {
-        bool isBalloon = false;
-
-        if (strstr(g_current_algo->name,"balloon"))
-           isBalloon = true;
-
 	// submit(worker_name, jobid, extranonce2, ntime, nonce):
-	if(json_params->u.array.length<5)
-	{
+	if(json_params->u.array.length<5 || !valid_string_params(json_params)) {
 		debuglog("%s - %s bad message\n", client->username, client->sock->ip);
 		client->submit_bad++;
 		return false;
 	}
 
-	char extranonce2[32];
-	char ntime[32];
-	char nonce[32];
-	char vote[8];
+	char extranonce2[32] = { 0 };
+	char extra[160] = { 0 };
+	char nonce[80] = { 0 };
+	char ntime[32] = { 0 };
+	char vote[8] = { 0 };
 
-	memset(extranonce2, 0, 32);
-	memset(ntime, 0, 32);
-	memset(nonce, 0, 32);
-	memset(vote, 0, 8);
-
-	if (!json_params->u.array.values[1]->u.string.ptr || strlen(json_params->u.array.values[1]->u.string.ptr) > 32) {
+	if (strlen(json_params->u.array.values[1]->u.string.ptr) > 32) {
 		clientlog(client, "bad json, wrong jobid len");
 		client->submit_bad++;
 		return false;
@@ -385,17 +464,27 @@ bool client_submit(YAAMP_CLIENT *client, json_value *json_params)
 	strncpy(extranonce2, json_params->u.array.values[2]->u.string.ptr, 31);
 	strncpy(ntime, json_params->u.array.values[3]->u.string.ptr, 31);
 	strncpy(nonce, json_params->u.array.values[4]->u.string.ptr, 31);
-	if (json_params->u.array.length == 6)
-		strncpy(vote, json_params->u.array.values[5]->u.string.ptr, 7);
-
-	if (g_debuglog_hash) {
-		debuglog("submit %s (uid %d) %d, %s, %s, %s\n", client->sock->ip, client->userid, jobid, extranonce2, ntime, nonce);
-	}
 
 	string_lower(extranonce2);
 	string_lower(ntime);
 	string_lower(nonce);
-	string_lower(vote);
+
+	if (json_params->u.array.length == 6) {
+		if (strstr(g_stratum_algo, "phi")) {
+			// lux optional field, smart contral root hashes (not mandatory on shares submit)
+			strncpy(extra, json_params->u.array.values[5]->u.string.ptr, 128);
+			string_lower(extra);
+		} else {
+			// heavycoin vote
+			strncpy(vote, json_params->u.array.values[5]->u.string.ptr, 7);
+			string_lower(vote);
+		}
+	}
+
+	if (g_debuglog_hash) {
+		debuglog("submit %s (uid %d) %d, %s, t=%s, n=%s, extra=%s\n", client->sock->ip, client->userid,
+			jobid, extranonce2, ntime, nonce, extra);
+	}
 
 	YAAMP_JOB *job = (YAAMP_JOB *)object_find(&g_list_job, jobid, true);
 	if(!job)
@@ -423,7 +512,7 @@ bool client_submit(YAAMP_CLIENT *client, json_value *json_params)
 
 	if(strcmp(ntime, templ->ntime))
 	{
-		if (!ntime_valid_range(ntime)) {
+		if (!ishexa(ntime, 8) || !ntime_valid_range(ntime)) {
 			client_submit_error(client, job, 23, "Invalid time rolling", extranonce2, ntime, nonce);
 			return true;
 		}
@@ -491,51 +580,27 @@ bool client_submit(YAAMP_CLIENT *client, json_value *json_params)
 
 	// minimum hash diff begins with 0000, for all...
 	uint8_t pfx = submitvalues.hash_bin[30] | submitvalues.hash_bin[31];
-
-        // except balloon
-        if(isBalloon)
-           pfx = (submitvalues.hash_bin[30] > 0x0b) | submitvalues.hash_bin[31];
-  
 	if(pfx) {
 		if (g_debuglog_hash) {
 			debuglog("Possible %s error, hash starts with %02x%02x%02x%02x\n", g_current_algo->name,
 				(int) submitvalues.hash_bin[31], (int) submitvalues.hash_bin[30],
 				(int) submitvalues.hash_bin[29], (int) submitvalues.hash_bin[28]);
-                }
+		}
 		client_submit_error(client, job, 25, "Invalid share", extranonce2, ntime, nonce);
 		return true;
 	}
 
-        // bit dim, but so is measuring the diff this way
-        uint64_t user_target;
 	uint64_t hash_int = get_hash_difficulty(submitvalues.hash_bin);
-        uint64_t coin_target = decode_compact(templ->nbits);
-        uint64_t hashcomb = * (uint64_t *) &submitvalues.hash_bin[24];
+	uint64_t user_target = diff_to_target(client->difficulty_actual);
+	uint64_t coin_target = decode_compact(templ->nbits);
+	if (templ->nbits && !coin_target) coin_target = 0xFFFF000000000000ULL;
 
-        // prevents overflow
-        if(!isBalloon) {
-                user_target = diff_to_target(client->difficulty_actual);
-        }
-        if(templ->nbits && !coin_target) coin_target = 0xFFFF000000000000ULL;
-
-        // due to balloon's lower diff
-        if (g_debuglog_hash && isBalloon) {
-                debuglog("hash %016lx \n", hashcomb);
-                debuglog("targ %016lx \n", sharetotarg(client->difficulty_actual));
-        }
-	if (g_debuglog_hash && !isBalloon) {
+	if (g_debuglog_hash) {
 		debuglog("%016llx actual\n", hash_int);
 		debuglog("%016llx target\n", user_target);
 		debuglog("%016llx coin\n", coin_target);
 	}
-
-        // due to balloon's lower diff
-        if(hashcomb > sharetotarg(client->difficulty_actual) && isBalloon) 
-        {
-                client_submit_error(client, job, 26, "Low difficulty share", extranonce2, ntime, nonce);
-                return true;
-        }
-	if(hash_int > user_target && hash_int > coin_target && !isBalloon)
+	if(hash_int > user_target && hash_int > coin_target)
 	{
 		client_submit_error(client, job, 26, "Low difficulty share", extranonce2, ntime, nonce);
 		return true;
@@ -563,6 +628,244 @@ bool client_submit(YAAMP_CLIENT *client, json_value *json_params)
 	if (g_debuglog_hash) {
 		// only log a few...
 		if (share_diff > (client->difficulty_actual * 16))
+			debuglog("submit %s (uid %d) %d, %s, %s, %s, %.3f/%.3f\n", client->sock->ip, client->userid,
+				jobid, extranonce2, ntime, nonce, share_diff, client->difficulty_actual);
+	}
+
+	share_add(client, job, true, extranonce2, ntime, nonce, share_diff, 0);
+	object_unlock(job);
+
+	return true;
+}
+
+// -------------------------------------------------------------
+
+bool client_submit_equi(YAAMP_CLIENT *client, json_value *json_params)
+{
+	// submit(worker_name, jobid, extranonce2, ntime, nonce):
+	if(json_params->u.array.length<5 || !valid_string_params(json_params)) {
+		debuglog("%s - %s bad message\n", client->username, client->sock->ip);
+		client->submit_bad++;
+		return false;
+	}
+
+    /*
+    for (int i = 0; i < json_params->u.array.length - 1; i++) {
+        std::cerr << "[" << i << "] " << json_params->u.array.values[i]->u.string.ptr << std::endl;
+    }
+    */
+
+	char extranonce2[32] = { 0 };
+	char extra[160] = { 0 };
+	char nonce[65] = { 0 };
+	char ntime[9] = { 0 };
+	char vote[8] = { 0 };
+    char equi_solution[1344*2 + 64] = { 0 }; // 1344*2 + 64 as solhex field in ccminer
+                                             // but should be 1344*2 + 3*2 (fd4005 bytes = 0xfd, 0x0540)
+
+	if (strlen(json_params->u.array.values[1]->u.string.ptr) > 32) {
+		clientlog(client, "bad json, wrong jobid len");
+		client->submit_bad++;
+		return false;
+	}
+	int jobid = htoi(json_params->u.array.values[1]->u.string.ptr);
+
+    // 0 - ?, 1 - xnonce1 (extranonce1) [string], 2 - xn2_size
+    // ccminer: xn1_size = (int)strlen(xnonce1) / 2, xn2_size = 32 - xn1_size; // xn1_size = 4, xn2_size = 28
+
+	//strncpy(extranonce2, json_params->u.array.values[2]->u.string.ptr, 31);
+	
+    // we should reverse some params, see job_send.cpp 
+    char rev_ntime[9] = {0};
+    strncpy(rev_ntime, json_params->u.array.values[2]->u.string.ptr, 8);
+    string_be(rev_ntime,ntime); 
+
+	strncpy(nonce, json_params->u.array.values[3]->u.string.ptr, 64);
+    strncpy(equi_solution, json_params->u.array.values[4]->u.string.ptr, 1344*2 + 3*2 );
+
+	//string_lower(extranonce2);
+	string_lower(ntime);
+	string_lower(nonce);
+    string_lower(equi_solution);
+
+	if (g_debuglog_hash) {
+		debuglog("submit %s (uid %d) %d, ntime = %s, nonce = %s, sol = %s\n", client->sock->ip, client->userid,
+			jobid, ntime, nonce, "..." /*equi_solution*/);
+	}
+
+	YAAMP_JOB *job = (YAAMP_JOB *)object_find(&g_list_job, jobid, true);
+	if(!job)
+	{
+		client_submit_error(client, NULL, 21, "Invalid job id", extranonce2, ntime, nonce);
+		return true;
+	}
+
+	if(job->deleted)
+	{
+		client_send_result(client, "true");
+		object_unlock(job);
+
+		return true;
+	}
+
+	YAAMP_JOB_TEMPLATE *templ = job->templ;
+
+    /*
+        std::cerr << "strlen(nonce) = " << strlen(nonce) << ", YAAMP_EQUI_NONCE_SIZE*2 = " << YAAMP_EQUI_NONCE_SIZE*2 << std::endl;
+        // from equi-stratum.cpp ccminer, actually nonce is 32 - 4 = 28 bytes (56 in hex representation)
+    	size_t nonce_len = 32 - stratum.xnonce1_size;
+	    // long nonce without pool prefix (extranonce)
+	    noncestr = bin2hex(&nonce[stratum.xnonce1_size], nonce_len);
+    */
+
+	if(strlen(nonce) != YAAMP_EQUI_NONCE_SIZE*2 || !ishexa(nonce, YAAMP_EQUI_NONCE_SIZE*2)) {
+		client_submit_error(client, job, 20, "Invalid nonce size", extranonce2, ntime, nonce);
+		return true;
+	}
+
+    if(strcmp(ntime, templ->ntime))
+	{
+		if (!ishexa(ntime, 8) || !ntime_valid_range(ntime)) {
+			client_submit_error(client, job, 23, "Invalid time rolling", extranonce2, ntime, nonce);
+			return true;
+		}
+		// dont allow algos permutations change over time (can lead to different speeds)
+		if (!g_allow_rolltime) {
+			client_submit_error(client, job, 23, "Invalid ntime (rolling not allowed)", extranonce2, ntime, nonce);
+			return true;
+		}
+	}
+
+    // TODO: look how share_find is work to check duplicate shares
+	YAAMP_SHARE *share = share_find(job->id, extranonce2, ntime, nonce, client->extranonce1);
+	if(share)
+	{
+		client_submit_error(client, job, 22, "Duplicate share", extranonce2, ntime, nonce);
+		return true;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////////
+
+    //std::cerr << "height: " << templ->height << std::endl;
+	YAAMP_JOB_VALUES submitvalues;
+	memset(&submitvalues, 0, sizeof(submitvalues));
+    build_submit_values_equi(&submitvalues, templ, client->extranonce1, extranonce2, ntime, nonce, equi_solution);
+
+	// minimum hash diff begins with 0000, for all...
+	uint8_t pfx = submitvalues.hash_bin[30] | submitvalues.hash_bin[31];
+	
+       if(0 && pfx) {
+		if (g_debuglog_hash) {
+			debuglog("Possible %s error, hash starts with %02x%02x%02x%02x\n", g_current_algo->name,
+				(int) submitvalues.hash_bin[31], (int) submitvalues.hash_bin[30],
+				(int) submitvalues.hash_bin[29], (int) submitvalues.hash_bin[28]);
+		}
+		client_submit_error(client, job, 25, "Invalid share", extranonce2, ntime, nonce);
+		return true;
+	}
+
+    // TODO: check equihash solution here and submit a error if it's invalid 
+    if (g_current_algo->name && !strcmp(g_current_algo->name,"equihash")) {
+        /*
+        fprintf(stderr,"blockheader:\n");
+        for (int i=0; i<140; i++) {
+            fprintf(stderr,"%02x",submitvalues.header_bin[i] & 0xff);
+        }
+        fprintf(stderr,"\n");
+        */
+        const char *EH_hdr = (char *)submitvalues.header_bin;
+        const char *EH_sln = (char *)submitvalues.header_bin + 143;
+        //std::cerr << "verifyEH - " << verifyEH(EH_hdr, EH_sln) << std::endl;
+        if (!verifyEH(EH_hdr, EH_sln))
+            {
+                client_submit_error(client, job, 25, "Invalid equihash solution", extranonce2, ntime, nonce);
+                return true;
+            }
+    }
+
+    uint64_t hash_int, user_target, coin_target;
+
+    /* we will submit block to daemon in client_do_submit only if (hash_int <= coin_target) */
+    if (g_current_algo->name && !strcmp(g_current_algo->name,"equihash")) 
+        {
+        
+        uint32_t bits;
+        uint8_t equi_target[32] = { 0 }; char target_str[65]; target_str[64] = 0; char target_str_be[65]; target_str_be[64] = 0;
+        diff_to_target_equi((uint32_t *)equi_target, client->difficulty_actual);
+        hexlify(target_str, equi_target, 32); string_be(target_str, target_str_be);
+        if (g_debuglog_hash) {
+            debuglog(" blockhash: %s\n", submitvalues.hash_be);
+            debuglog("loc target: %s\n", target_str_be);
+            
+            uint32_t tmp_bits; char tmp_bits_str[5]; char tmp_target[65];
+            string_be(templ->nbits, tmp_bits_str); binlify((unsigned char *)&tmp_bits, tmp_bits_str);
+            bits2target(tmp_bits, tmp_target); tmp_target[64] = '\0';
+            debuglog("net target: %s\n", tmp_target);
+            string_be(templ->nbits_from_target, tmp_bits_str); binlify((unsigned char *)&tmp_bits, tmp_bits_str);
+            bits2target(tmp_bits, tmp_target); tmp_target[64] = '\0';
+            debuglog("--- target: %s\n", tmp_target);
+
+            debuglog(" share diff: %.3f\n", target_to_diff_equi((uint32_t *)submitvalues.hash_bin));
+            debuglog("client diff: %.3f\n", client->difficulty_actual);
+        }
+        // templ->nbits is just a 32 char string, like "200f0f0f", so to convert it to diff we should convert it to binary value.
+        char bits_str[5] = { 0 }; 
+        string_be(templ->nbits, bits_str); binlify((unsigned char *)&bits, bits_str);
+
+        if (g_debuglog_hash) debuglog("  coin diff: %.3f\n", nbits_to_diff_equi(&bits));
+
+        // so, let's convert double diff values to corresponding uint64_t
+        hash_int    = diff_to_target(target_to_diff_equi((uint32_t *)submitvalues.hash_bin));
+        user_target = diff_to_target(client->difficulty_actual);
+        coin_target = diff_to_target(nbits_to_diff_equi(&bits));
+        } 
+    else
+        {
+        hash_int    = get_hash_difficulty(submitvalues.hash_bin);
+        user_target = diff_to_target(client->difficulty_actual);
+        coin_target = decode_compact(templ->nbits);
+        }
+    
+	if (templ->nbits && !coin_target) coin_target = 0xFFFF000000000000ULL;
+
+	if (g_debuglog_hash) {
+		debuglog("%016llx actual\n", hash_int);
+		debuglog("%016llx target\n", user_target);
+		debuglog("%016llx coin\n", coin_target);
+	}
+
+	if(hash_int > user_target && hash_int > coin_target)
+	{
+		client_submit_error(client, job, 26, "Low difficulty share", extranonce2, ntime, nonce);
+		return true;
+	}
+
+	if(job->coind)
+		client_do_submit(client, job, &submitvalues, extranonce2, ntime, nonce, vote);
+	else
+		remote_submit(client, job, &submitvalues, extranonce2, ntime, nonce);
+
+	client_send_result(client, "true");
+	client_record_difficulty(client);
+	client->submit_bad = 0;
+	client->shares++;
+	if (client->shares <= 200 && (client->shares % 50) == 0) {
+		// 4 records are enough per miner
+		if (!client_ask_stats(client)) client->stats = false;
+	}
+    
+    double share_diff = 0.0;
+    if (g_current_algo->name && !strcmp(g_current_algo->name,"equihash")) {
+        share_diff = target_to_diff_equi((uint32_t *)submitvalues.hash_bin);
+    } else 
+        share_diff = diff_to_target(hash_int);
+//	if (g_current_algo->diff_multiplier != 0) {
+//		share_diff = share_diff / g_current_algo->diff_multiplier;
+//	}
+
+	if (g_debuglog_hash) {
+		// only log a few...
+		// if (share_diff > (client->difficulty_actual * 16))
 			debuglog("submit %s (uid %d) %d, %s, %s, %s, %.3f/%.3f\n", client->sock->ip, client->userid,
 				jobid, extranonce2, ntime, nonce, share_diff, client->difficulty_actual);
 	}

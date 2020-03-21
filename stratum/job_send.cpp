@@ -30,16 +30,70 @@ static void job_mining_notify_buffer(YAAMP_JOB *job, char *buffer)
 			templ->txmerkles, templ->version, templ->nbits, templ->ntime);
 		return;
 	}
+    // equihash job
+
+    /*
+        // blockTemplate.js
+        this.jobParams = [
+                this.jobId,
+                util.packUInt32LE(this.rpcData.version).toString('hex'),
+                this.prevHashReversed,
+                this.merkleRootReversed,
+                this.hashReserved, //hashReserved
+                util.packUInt32LE(rpcData.curtime).toString('hex'),
+                util.reverseBuffer(new Buffer(this.rpcDta.bits, 'hex')).toString('hex'),
+                true
+            ];
+    */
+
+    if (!strcmp(g_stratum_algo, "equihash")) {
+        char rev_version[32] = {0};
+        char prevHashReversed[65] = {0};
+        char merkleRootReversed[65] = {0};
+        char rev_ntime[32] = {0};
+        char rev_nbits[32] = {0};
+
+        
+        string_be(templ->version,rev_version);
+        string_be(templ->prevhash_hex,prevHashReversed);
+        string_be(templ->mr_hex,merkleRootReversed);
+        //std::cerr << "Merkle (sent): " << merkleRootReversed << std::endl;
+        
+        //memset(merkleRootReversed, 0x30, 64); merkleRootReversed[65] = 0;
+        
+        string_be(templ->ntime,rev_ntime);
+        string_be(templ->nbits,rev_nbits);
+        // https://github.com/slushpool/poclbm-zcash/wiki/Stratum-protocol-changes-for-ZCash
+        // jobId, version, prevHashReversed, merkleRootReversed, hashReserved (finalsaplingroothash), curtime, nbits
+        //sprintf(buffer, "{\"id\":null,\"method\":\"mining.notify\",\"params\":[\"%x\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",true ]}\n",
+        sprintf(buffer, "{\"id\":null,\"method\":\"mining.notify\",\"params\":[\"%x\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\", true]}\n",
+		job->id, rev_version, prevHashReversed, merkleRootReversed, templ->extradata_be, rev_ntime, rev_nbits);
+        return;
+    }
 
 	// standard stratum
+    // https://en.bitcoin.it/wiki/Stratum_mining_protocol#mining.notify
 	sprintf(buffer, "{\"id\":null,\"method\":\"mining.notify\",\"params\":[\"%x\",\"%s\",\"%s\",\"%s\",[%s],\"%s\",\"%s\",\"%s\",true]}\n",
 		job->id, templ->prevhash_be, templ->coinb1, templ->coinb2, templ->txmerkles, templ->version, templ->nbits, templ->ntime);
+    
 }
 
 static YAAMP_JOB *job_get_last(int coinid)
 {
 	g_list_job.Enter();
-	for(CLI li = g_list_job.first; li; li = li->prev)
+    /*
+    {   // debug (iterate the list of jobs and print content)
+        CLI li = g_list_job.first;
+        for (int i = 0; i < g_list_job.count; i++) 
+        {
+            YAAMP_JOB *job = (YAAMP_JOB *)li->data;
+            std::cerr << job->coind->symbol << " " << job->coind->id << std::endl;
+            li = li->next;
+        }
+    }
+    */
+    
+	for(CLI li = g_list_job.first; li; li = li->next) // should be li->next, instead of li->prev, otherwise we will not iterate list
 	{
 		YAAMP_JOB *job = (YAAMP_JOB *)li->data;
 		if(!job_can_mine(job)) continue;
@@ -61,12 +115,14 @@ void job_send_last(YAAMP_CLIENT *client)
 #ifdef NO_EXCHANGE
 	// prefer user coin first (if available)
 	YAAMP_JOB *job = job_get_last(client->coinid);
+	//if(job) debuglog("[1] job_send_last for coind \"%s\" (client->coinid.%d)\n", job->coind->symbol, client->coinid);
 	if(!job) job = job_get_last(0);
+	//if(job) debuglog("[2] job_send_last for coind \"%s\" (client->coinid.%d)\n", job->coind->symbol, client->coinid);
 #else
 	YAAMP_JOB *job = job_get_last(0);
 #endif
 	if(!job) return;
-
+	//if(job) debuglog("[3] job_send_last for coind \"%s\" (client->coinid.%d)\n", job->coind->symbol, client->coinid);
 	YAAMP_JOB_TEMPLATE *templ = job->templ;
 	client->jobid_sent = job->id;
 
