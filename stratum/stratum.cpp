@@ -124,17 +124,34 @@ YAAMP_ALGO g_algos[] =
 	{"x14", x14_hash, 1, 0, 0},
 	{"x15", x15_hash, 1, 0, 0},
 	{"x17", x17_hash, 1, 0, 0},
+
 	{"x22i", x22i_hash, 1, 0, 0},
+
+	{"x18", x18_hash, 1, 0, 0},
+	{"x20r", x20r_hash, 0x100, 0, 0},
+	{"x21s", x21s_hash, 0x100, 0, 0},
+	{"x22i", x22i_hash, 1, 0, 0},
+	{"x25x", x25x_hash, 1, 0, 0},
+	
+	{"bcd", bcd_hash, 1, 0, 0},
+	
 
 	{"x11evo", x11evo_hash, 1, 0, 0},
 	{"xevan", xevan_hash, 0x100, 0, 0},
 
 	{"x16r", x16r_hash, 0x100, 0, 0},
+
 	{"x16rv2", x16rv2_hash, 0x100, 0, 0},
 	{"x16s", x16s_hash, 0x100, 0, 0},
 	{"timetravel", timetravel_hash, 0x100, 0, 0},
 	{"bitcore", timetravel10_hash, 0x100, 0, 0},
 	{"exosis", exosis_hash, 0x100, 0, 0},
+
+	{"x16rt", x16rt_hash, 0x100, 0, 0},
+	{"x16s", x16s_hash, 0x100, 0, 0},
+	{"timetravel", timetravel_hash, 0x100, 0, 0},
+	{"bitcore", timetravel10_hash, 0x100, 0, 0},
+
 	{"hsr", hsr_hash, 1, 0, 0},
 	{"hmq1725", hmq17_hash, 0x10000, 0, 0},
 
@@ -151,11 +168,22 @@ YAAMP_ALGO g_algos[] =
 	{"blake", blake_hash, 1, 0 },
 	{"blakecoin", blakecoin_hash, 1 /*0x100*/, 0, sha256_hash_hex },
 	{"blake2b", blake2b_hash, 1, 0 },
+
+	{"lyra2vc0ban", lyra2vc0ban_hash, 0x100, 0, 0},
+	
+	{"bastion", bastion_hash, 1, 0 },
+	{"blake", blake_hash, 1, 0 },
+	{"blakecoin", blakecoin_hash, 1 /*0x100*/, 0, sha256_hash_hex },
+
 	{"blake2s", blake2s_hash, 1, 0 },
 	{"vanilla", blakecoin_hash, 1, 0 },
 	{"decred", decred_hash, 1, 0 },
 
 	{"deep", deep_hash, 1, 0, 0},
+
+
+	{"dedal", dedal_hash, 0x100, 0, 0},
+
 	{"fresh", fresh_hash, 0x100, 0, 0},
 	{"quark", quark_hash, 1, 0, 0},
 	{"nist5", nist5_hash, 1, 0, 0},
@@ -169,7 +197,7 @@ YAAMP_ALGO g_algos[] =
 	{"keccak", keccak256_hash, 0x80, 0, sha256_hash_hex },
 	{"keccakc", keccak256_hash, 0x100, 0, 0},
 	{"hex", hex_hash, 0x100, 0, sha256_hash_hex },
-	
+
 	{"phi", phi_hash, 1, 0, 0},
 	{"phi2", phi2_hash, 0x100, 0, 0},
 
@@ -177,16 +205,39 @@ YAAMP_ALGO g_algos[] =
 	{"skunk", skunk_hash, 1, 0, 0},
 
 	{"bmw", bmw_hash, 1, 0, 0},
+
+	{"bmw512", bmw512_hash, 0x100, 0, 0},
+
 	{"lbk3", lbk3_hash, 0x100, 0, 0},
 	{"lbry", lbry_hash, 0x100, 0, 0},
 	{"luffa", luffa_hash, 1, 0, 0},
 	{"penta", penta_hash, 1, 0, 0},
 	{"rainforest", rainforest_hash, 0x100, 0, 0},
 	{"skein2", skein2_hash, 1, 0, 0},
+
 	{"yescrypt", yescrypt_hash, 0x10000, 0, 0},
 	{"yescryptR16", yescryptR16_hash, 0x10000, 0, 0 },
 	{"yescryptR32", yescryptR32_hash, 0x10000, 0, 0 },
 	{"zr5", zr5_hash, 1, 0, 0},
+
+
+	
+	{"yescrypt", yescrypt_hash, 0x10000, 0, 0},
+	{"yescryptR8", yescryptR8_hash, 0x10000, 0, 0 },
+	{"yescryptR16", yescryptR16_hash, 0x10000, 0, 0 },
+	{"yescryptR32", yescryptR32_hash, 0x10000, 0, 0 },
+	
+	{"yespower", yespower_hash, 0x10000, 0, 0 },
+	{"yespowerR8", yespowerR8_hash, 0x10000, 0, 0 },
+	{"yespowerR16", yespowerR16_hash, 0x10000, 0, 0 },
+	{"yespowerR24", yespowerR24_hash, 0x10000, 0, 0 },
+	{"yespowerR32", yespowerR32_hash, 0x10000, 0, 0 },
+	{"yespowerRES", yespowerRES_hash, 0x10000, 0, 0 },
+	
+	
+	{"zr5", zr5_hash, 1, 0, 0},
+	{"renesis", renesis_hash, 1, 0, 0},
+	{"geek", geek_hash, 1, 0, 0},
 
 	{"a5a", a5a_hash, 0x10000, 0, 0},
 	{"hive", hive_hash, 0x10000, 0, 0},
@@ -194,6 +245,7 @@ YAAMP_ALGO g_algos[] =
 	{"veltor", veltor_hash, 1, 0, 0},
 	{"velvet", velvet_hash, 0x10000, 0, 0},
 	{"argon2", argon2a_hash, 0x10000, 0, sha256_hash_hex },
+
 	{"argon2d-dyn", argon2d_dyn_hash, 0x10000, 0, 0 }, // Dynamic Argon2d Implementation
 	{"vitalium", vitalium_hash, 1, 0, 0},
 	{"aergo", aergo_hash, 1, 0, 0},
@@ -202,11 +254,36 @@ YAAMP_ALGO g_algos[] =
 
 	{"sha256q", sha256q_hash, 1, 0, 0}, // sha256 4x
 
+	{"argon2d-crds", argon2d_crds_hash, 0x10000, 0, 0 }, // Credits Argon2d Implementation
+	{"argon2d-dyn", argon2d_dyn_hash, 0x10000, 0, 0 }, // Dynamic Argon2d Implementation
+	{"argon2d-uis", argon2d_uis_hash, 0x10000, 0, 0 }, // Argon2d Implementation
+	{"vitalium", vitalium_hash, 1, 0, 0},
+	{"aergo", aergo_hash, 1, 0, 0},
+
+	{"balloon", balloon_hash, 1, 0, 0},
+
+	{"pipe", pipe_hash, 1,0,0},
+	
+	{"sha256t", sha256t_hash, 1, 0, 0}, // sha256 3x
+
+
 	{"sib", sib_hash, 1, 0, 0},
 
 	{"whirlcoin", whirlpool_hash, 1, 0, sha256_hash_hex }, /* old sha merkleroot */
 	{"whirlpool", whirlpool_hash, 1, 0 }, /* sha256d merkleroot */
 	{"whirlpoolx", whirlpoolx_hash, 1, 0, 0},
+
+	
+	{"astralhash", astralhash_hash, 0x100, 0, 0},
+	
+	{"jeonghash", jeonghash_hash, 0x100, 0, 0},
+	
+	{"pawelhash", pawelhash_hash, 0x100, 0, 0},
+	
+	{"honeycomb", beenode_hash, 0x10000, 0, 0},
+	
+	{"minotaur", minotaur_hash, 1, 0, 0},
+	
 
 	{"", NULL, 0, 0},
 };
@@ -226,7 +303,9 @@ YAAMP_ALGO *stratum_find_algo(const char *name)
 
 int main(int argc, char **argv)
 {
-    if(argc < 2)
+
+	if(argc < 2)
+
 	{
 		printf("usage: %s <algo>\n", argv[0]);
 		return 1;
@@ -481,4 +560,3 @@ void *stratum_thread(void *p)
 		pthread_detach(thread);
 	}
 }
-
