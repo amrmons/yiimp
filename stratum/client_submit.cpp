@@ -744,7 +744,7 @@ bool client_submit_res(YAAMP_CLIENT *client, json_value *json_params)
     build_submit_values_res(&submitvalues, templ, client->extranonce1, extranonce2, ntime, nonce);
 
 	// minimum hash diff begins with 0000, for all...
-	uint8_t pfx = submitvalues.hash_bin[30] | submitvalues.hash_bin[31];
+	uint8_t pfx = submitvalues.hash_bin[31];
 	if(0 && pfx) {
 		if (g_debuglog_hash) {
 			debuglog("Possible %s error, hash starts with %02x%02x%02x%02x\n", g_current_algo->name,
