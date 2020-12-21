@@ -304,6 +304,8 @@ else if ($ETH)
     $account = $coin->master_wallet;
 	
 else if ($coin->symbol == "RNG") $account = '*';
+
+else if ($coin->symbol == "ZEN") $account = '*';
 	
 	
 $txs = $remote->listtransactions($account, $maxrows);
