@@ -353,15 +353,6 @@ echo CUFHtml::activeTextField($coin, 'rpcencoding', array('maxlength'=>5,'style'
 echo '<p class="formHint2">POW/POS</p>';
 echo CUFHtml::closeCtrlHolder();
 
-echo CUFHtml::openActiveCtrlHolder($coin, 'dedicatedport');
-echo CUFHtml::activeLabelEx($coin, 'dedicatedport');
-echo CUFHtml::activeTextField($coin, 'dedicatedport', array(
-    'maxlength' => 5,
-    'style' => 'width: 60px;'
-));
-echo '<p class="formHint2">Run addport to get Port Number</p>';
-echo CUFHtml::closeCtrlHolder();
-
 echo CUFHtml::openActiveCtrlHolder($coin, 'rpccurl');
 echo CUFHtml::activeLabelEx($coin, 'rpccurl');
 echo CUFHtml::activeCheckBox($coin, 'rpccurl');
@@ -391,7 +382,6 @@ if ($coin->id) {
 	echo "<b>Sample config</b>:";
 	echo CHtml::opentag("pre");
 	$port = getAlgoPort($coin->algo);
-	$dedport = $coin->dedicatedport;
 	echo "rpcuser={$coin->rpcuser}\n";
 	echo "rpcpassword={$coin->rpcpasswd}\n";
 	echo "rpcport={$coin->rpcport}\n";
@@ -403,29 +393,15 @@ if ($coin->id) {
 	echo "gen=0\n";
 	echo "\n";
 	echo "alertnotify=echo %s | mail -s \"{$coin->name} alert!\" ".YAAMP_ADMIN_EMAIL."\n";
-	if (empty($coin->dedicatedport))
-        {
-            echo "blocknotify=/var/stratum/blocknotify ".YAAMP_STRATUM_URL.":$port {$coin->id} %s\n";
-        }
-        else
-        {
-            echo "blocknotify=/var/stratum/blocknotify ".YAAMP_STRATUM_URL.":$dedport {$coin->id} %s\n";
-        }
-    echo " \n";
-    echo CHtml::closetag("pre");
+	echo "blocknotify=blocknotify ".YAAMP_STRATUM_URL.":$port {$coin->id} %s\n";
+	echo CHtml::closetag("pre");
 
 	echo CHtml::tag("hr");
 	echo "<b>Miner command line</b>:";
 	echo CHtml::opentag("pre");
 	echo "-a {$coin->algo} ";
-	if (empty($coin->dedicatedport))
-        {
-            echo "-o stratum+tcp://" . YAAMP_STRATUM_URL . ':' . $port . ' ';
-        }
-        else
-        {
-            echo "-o stratum+tcp://" . YAAMP_STRATUM_URL . ':' . $dedport . ' ';
-        }echo "-u {$coin->master_wallet} ";
+	echo "-o stratum+tcp://".YAAMP_STRATUM_URL.':'.$port.' ';
+	echo "-u {$coin->master_wallet} ";
 	echo "-p c={$coin->symbol} ";
 	echo "\n";
 	echo CHtml::closetag("pre");
@@ -476,6 +452,3 @@ echo "</div>";
 echo CUFHtml::closeTag('fieldset');
 showSubmitButton($update? 'Save': 'Create');
 echo CUFHtml::endForm();
-
-
-
