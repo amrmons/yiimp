@@ -95,7 +95,7 @@ On the website, go to http://server.com/site/adminRights to login as admin. You 
 and in the lighttpd config file:
 
 	# Admin access
-	$HTTP["url"] =~ "^/site/adminRights" {
+	$HTTP["url"] =~ "^/site/myadmin" {
 	        auth.backend = "htpasswd"
 	        auth.backend.htpasswd.userfile = "/etc/yiimp/admin.htpasswd"
 	        auth.require = (
