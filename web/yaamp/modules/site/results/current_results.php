@@ -172,22 +172,38 @@ foreach ($algos as $item)
             
             echo "<td align='center' style='font-size: .8em;'>$symbol</td>";
             
-            $workers_coins = getdbocount('db_workers', "algo=:algo and pid=:pid and not password like '%m=solo%'", array(
-                ':algo' => $algo,
-                ':pid' => $port_db->pid
-            ));
-            $solo_workers_coins = getdbocount('db_workers', "algo=:algo and pid=:pid and password like '%m=solo%'", array(
-                ':algo' => $algo,
-                ':pid' => $port_db->pid
-            ));
-			if ($port_count == 1) 
-				echo "<td align='center' style='font-size: .8em;'>$workers_coins / $solo_workers_coins</td>";
-			else
-				echo "<td align='center' style='font-size: .8em;'>$workers / $solo_workers</td>";
-			
-			$pool_hash = yaamp_coin_rate($coin->id);
-            $pool_hash_sfx = $pool_hash ? Itoa2($pool_hash) . 'h/s' : '';
-            echo "<td align='center' style='font-size: .8em;'>$pool_hash_sfx</td>";
+                     try {
+                if (!is_null($port_db)) {
+                    if(true){
+                        $workesAndSoloWorkers = controller()
+                        ->memcache
+                        ->get_database_scalar(
+                            "minerResultsForSimbol-$symbol",
+                            "select CONCAT( ( select count(*) from workers where password not like '%m=solo%' and pid in ( select pid from stratums where symbol=:symbol ) ), ' / ', ( select count(*) from workers where password like '%m=solo%' and pid in ( select pid from stratums where symbol=:symbol ) ) ) as 'miners / solo miners';",
+                            array(
+                                ':symbol' => $symbol
+                            )
+                        );
+                        echo "<td align='center' style='font-size: .8em;'> $workesAndSoloWorkers</td>";
+                    }else{
+                        $workers_coins = getdbocount('db_workers', "algo=:algo and pid=:pid and not password like '%m=solo%'", array(
+                            ':algo' => $algo,
+                            ':pid' => $port_db->pid
+                        ));
+                        $solo_workers_coins = getdbocount('db_workers', "algo=:algo and pid=:pid and password like '%m=solo%'", array(
+                            ':algo' => $algo,
+                            ':pid' => $port_db->pid
+                        ));
+
+                        if ($port_count == 1) echo "<td align='center' style='font-size: .8em;'>$workers_coins / $solo_workers_coins</td>";
+                        else echo "<td align='center' style='font-size: .8em;'>$workers / $solo_workers</td>";
+                    }
+
+                } else {
+                    echo  "<td align='center' style='font-size: .8em;'>check coin symbol</td>";
+                }
+            } catch (Exception $e) {
+            }
             
 			$pool_hash_sfx = $pool_hash ? Itoa2($pool_hash) . 'h/s' : '';
             $min_ttf = $coin->network_ttf > 0 ? min($coin->actual_ttf, $coin->network_ttf) : $coin->actual_ttf;
