@@ -20,6 +20,7 @@ require_once("bleutrade.php");
 require_once("cexio.php");
 require_once("crex24.php");
 require_once("deliondex.php");
+require_once("exbitron.php");
 require_once("escodex.php");
 require_once("gateio.php");
 require_once("graviex.php");
@@ -39,6 +40,7 @@ require_once("cryptowatch.php");
 require_once("stocksexchange.php");
 require_once("tradeogre.php");
 require_once("tradesatoshi.php");
+require_once("txbit.php");
 require_once("swiftex.php");
 require_once("unnamed.php");
 require_once("bibox.php");
@@ -109,6 +111,8 @@ function getMarketUrl($coin, $marketName)
 		$url = "http://www.empoex.com/trade/{$symbol}-{$base}";
 	else if($market == 'deliondex')
 		$url = "https://dex.delion.online/market/DELION.{$symbol}_DELION.{$base}";
+	else if($market == 'exbitron')
+		$url = "https://www.exbitron.com/trading/{$symbol}{$base}";
 	else if($market == 'escodex')
 		$url = "https://wallet.escodex.com/market/ESCODEX.{$symbol}_ESCODEX.{$base}";
 	else if($market == 'gateio')
