@@ -29,6 +29,11 @@ Use this Config on nginx:
 		include fastcgi_params;
 	}
 
+	location ^~ /list-algos/ {
+		deny all;
+		access_log off;
+		return 301 https://$server_name;
+	}
 
 <h3 align="center"> Apache </h3>
 
@@ -56,6 +61,11 @@ use the following config:
 	}
 
 <h2 align="left"> Setup Instructions </h2>
+
+after create Symlinks 
+ln -s /<path to stratum/config to be linked> <path of the link /var/web/list-algos to be created>
+example:
+ln -s /var/stratum/config /var/web/list-algos
 
 For the database, import the initial dump present in the sql/ folder
 
@@ -144,7 +154,16 @@ Thanks to globalzon to have released the initial Yaamp source code.
 
 --
 
-You can support this project donating to tpruvot :
+You can support this project donating 
 
-BTC : 1Auhps1mHZQpoX4mCcVL8odU81VakZQ6dR
+tpruvot :
+	BTC : 1Auhps1mHZQpoX4mCcVL8odU81VakZQ6dR
+
+xiaolin1579 :
+	BTC : 1Hfa7BBHejzGj4CNRpV2Lh4xYGizX8c1A5
+	BTC [BEP20] : 0xf6e4e1ce8b3801a612cfff40f29116fbf595b13e
+	DOGE : D6oP3WPygJ4NR26XxfFydUsCiNS4oX9rqb
+	USDT [BEP20] : 0xf6e4e1ce8b3801a612cfff40f29116fbf595b13e
+	USDT [TRC20] : TF6vSbcFFGtwSRgvH1JqkQuVb9J4cszpGc
+	RXD : 1N8WZpwSPaFvbaSMzDrPbLqbfM8tLVE87e
 
